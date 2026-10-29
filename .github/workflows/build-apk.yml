@@ -6,6 +6,7 @@ on:
   push:
     paths:
       - "GXRV-DYNASTY-Android-Project.zip"
+      - "HomeScreen.kt"
       - ".github/workflows/build-apk.yml"
 
 jobs:
@@ -44,6 +45,49 @@ jobs:
           PROJECT_DIR="$(dirname "$GRADLEW")"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           chmod +x "$GRADLEW"
+
+      - name: Apply updated HomeScreen
+        shell: bash
+        run: |
+          SOURCE="$GITHUB_WORKSPACE/HomeScreen.kt"
+          TARGET="$PROJECT_DIR/app/src/main/java/com/gxrv/dynasty/ui/screens/HomeScreen.kt"
+
+          if [ ! -f "$SOURCE" ]; then
+            echo "ERROR: HomeScreen.kt was not found in the repository root."
+            exit 1
+          fi
+
+          if [ ! -f "$TARGET" ]; then
+            echo "ERROR: HomeScreen.kt target path was not found in the Android project."
+            exit 1
+          fi
+
+          cp "$SOURCE" "$TARGET"
+
+          python3 - "$TARGET" <<'PY'
+          import sys
+          from pathlib import Path
+
+          p = Path(sys.argv[1])
+          s = p.read_text()
+
+          replacements = {
+              "Icons.Default.Calculate": "Icons.Default.Search",
+              "Icons.Default.SwapHoriz": "Icons.Default.Menu",
+              "Icons.Default.Storefront": "Icons.Default.Home",
+              "Icons.Default.Forum": "Icons.Default.Email",
+              "Icons.Default.Security": "Icons.Default.Lock",
+              "Icons.Default.History": "Icons.Default.DateRange",
+              "Icons.Default.Bolt": "Icons.Default.Star",
+              "Icons.Default.Explore": "Icons.Default.Search",
+          }
+
+          for old, new in replacements.items():
+              s = s.replace(old, new)
+
+          p.write_text(s)
+          print("Updated HomeScreen copied and icon names patched")
+          PY
 
       - name: Fix MainActivity theme
         shell: bash
@@ -101,7 +145,7 @@ jobs:
               s = s.replace(old, new)
 
           p.write_text(s)
-          print("Material icons patched")
+          print("Navigation Material icons patched")
           PY
 
       - name: Fix TradeDateRangeScreen reference
@@ -115,11 +159,7 @@ jobs:
 
           p = Path(sys.argv[1])
           s = p.read_text()
-
-          # Replace only the unresolved screen call with an existing screen
-          # so the project can compile without inventing a missing screen.
           s = s.replace("TradeDateRangeScreen", "TradeHistoryScreen")
-
           p.write_text(s)
           print("Trade screen reference patched")
           PY
