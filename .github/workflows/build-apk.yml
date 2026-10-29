@@ -6,7 +6,6 @@ on:
   push:
     paths:
       - "GXRV-DYNASTY-Android-Project.zip"
-      - "HomeScreen.kt"
       - ".github/workflows/build-apk.yml"
 
 jobs:
@@ -34,100 +33,44 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y unzip
           unzip -q GXRV-DYNASTY-Android-Project.zip -d extracted
-
           GRADLEW=$(find extracted -type f -name gradlew -print -quit)
-
           if [ -z "$GRADLEW" ]; then
             echo "ERROR: gradlew was not found inside the ZIP"
             exit 1
           fi
-
           PROJECT_DIR="$(dirname "$GRADLEW")"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           chmod +x "$GRADLEW"
-
-      - name: Apply updated HomeScreen
-        shell: bash
-        run: |
-          SOURCE="$GITHUB_WORKSPACE/HomeScreen.kt"
-          TARGET="$PROJECT_DIR/app/src/main/java/com/gxrv/dynasty/ui/screens/HomeScreen.kt"
-
-          if [ ! -f "$SOURCE" ]; then
-            echo "ERROR: HomeScreen.kt was not found in the repository root."
-            exit 1
-          fi
-
-          if [ ! -f "$TARGET" ]; then
-            echo "ERROR: HomeScreen.kt target path was not found in the Android project."
-            exit 1
-          fi
-
-          cp "$SOURCE" "$TARGET"
-
-          python3 - "$TARGET" <<'PY'
-          import sys
-          from pathlib import Path
-
-          p = Path(sys.argv[1])
-          s = p.read_text()
-
-          replacements = {
-              "Icons.Default.Calculate": "Icons.Default.Search",
-              "Icons.Default.SwapHoriz": "Icons.Default.Menu",
-              "Icons.Default.Storefront": "Icons.Default.Home",
-              "Icons.Default.Forum": "Icons.Default.Email",
-              "Icons.Default.Security": "Icons.Default.Lock",
-              "Icons.Default.History": "Icons.Default.DateRange",
-              "Icons.Default.Bolt": "Icons.Default.Star",
-              "Icons.Default.Explore": "Icons.Default.Search",
-          }
-
-          for old, new in replacements.items():
-              s = s.replace(old, new)
-
-          p.write_text(s)
-          print("Updated HomeScreen copied and icon names patched")
-          PY
-
       - name: Fix MainActivity theme
         shell: bash
         run: |
           FILE="$PROJECT_DIR/app/src/main/java/com/gxrv/dynasty/MainActivity.kt"
-
           python3 - "$FILE" <<'PY'
           import sys
           from pathlib import Path
-
           p = Path(sys.argv[1])
           s = p.read_text()
-
           s = s.replace(
               "GxrvDynastyTheme.colors.background",
               "MaterialTheme.colorScheme.background"
           )
-
           if "import androidx.compose.material3.MaterialTheme" not in s:
               s = s.replace(
                   "import androidx.compose.material3.Surface",
                   "import androidx.compose.material3.MaterialTheme\nimport androidx.compose.material3.Surface"
               )
-
           p.write_text(s)
           print("MainActivity theme patched")
           PY
-
       - name: Fix unsupported Material icons
         shell: bash
         run: |
           FILE="$PROJECT_DIR/app/src/main/java/com/gxrv/dynasty/ui/navigation/NavGraph.kt"
-
           python3 - "$FILE" <<'PY'
           import sys
           from pathlib import Path
-
           p = Path(sys.argv[1])
           s = p.read_text()
-
           replacements = {
               "LocalFireDepartment": "Favorite",
               "Calculate": "Search",
@@ -140,41 +83,35 @@ jobs:
               "History": "DateRange",
               "AdminPanelSettings": "Settings",
           }
-
           for old, new in replacements.items():
               s = s.replace(old, new)
-
           p.write_text(s)
-          print("Navigation Material icons patched")
+          print("Material icons patched")
           PY
-
       - name: Fix TradeDateRangeScreen reference
         shell: bash
         run: |
           FILE="$PROJECT_DIR/app/src/main/java/com/gxrv/dynasty/ui/navigation/NavGraph.kt"
-
           python3 - "$FILE" <<'PY'
           import sys
           from pathlib import Path
-
           p = Path(sys.argv[1])
           s = p.read_text()
+          # Replace only the unresolved screen call with an existing screen
+          # so the project can compile without inventing a missing screen.
           s = s.replace("TradeDateRangeScreen", "TradeHistoryScreen")
           p.write_text(s)
           print("Trade screen reference patched")
           PY
-
       - name: Enable AndroidX
         shell: bash
         run: |
           touch "$PROJECT_DIR/gradle.properties"
-
           if grep -q '^android.useAndroidX=' "$PROJECT_DIR/gradle.properties"; then
             sed -i 's/^android.useAndroidX=.*/android.useAndroidX=true/' "$PROJECT_DIR/gradle.properties"
           else
             echo 'android.useAndroidX=true' >> "$PROJECT_DIR/gradle.properties"
           fi
-
       - name: Fix missing launcher icons
         shell: bash
         run: |
@@ -183,13 +120,10 @@ jobs:
           import struct
           import zlib
           from pathlib import Path
-
           root = Path(os.environ["PROJECT_DIR"]) / "app/src/main/res"
-
           def make_png(size):
               pixel = bytes([12, 35, 70, 255])
               raw = b"".join(b"\x00" + pixel * size for _ in range(size))
-
               def chunk(kind, data):
                   body = kind + data
                   return (
@@ -197,14 +131,12 @@ jobs:
                       + body
                       + struct.pack(">I", zlib.crc32(body) & 0xffffffff)
                   )
-
               return (
                   b"\x89PNG\r\n\x1a\n"
                   + chunk(b"IHDR", struct.pack(">2I5B", size, size, 8, 6, 0, 0, 0))
                   + chunk(b"IDAT", zlib.compress(raw))
                   + chunk(b"IEND", b"")
               )
-
           sizes = {
               "mipmap-mdpi": 48,
               "mipmap-hdpi": 72,
@@ -212,25 +144,20 @@ jobs:
               "mipmap-xxhdpi": 144,
               "mipmap-xxxhdpi": 192,
           }
-
           for folder, size in sizes.items():
               target = root / folder
               target.mkdir(parents=True, exist_ok=True)
-
               for name in ("ic_launcher.png", "ic_launcher_round.png"):
                   path = target / name
                   if not path.exists():
                       path.write_bytes(make_png(size))
-
           print("Launcher icons checked")
           PY
-
       - name: Build debug APK
         shell: bash
         run: |
           cd "$PROJECT_DIR"
           ./gradlew assembleDebug --stacktrace --console=plain
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
