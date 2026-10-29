@@ -38,13 +38,45 @@ jobs:
 
           if [ -z "$GRADLEW" ]; then
             echo "ERROR: gradlew was not found inside the ZIP"
-            find extracted -maxdepth 5 -type d
             exit 1
           fi
 
           PROJECT_DIR="$(dirname "$GRADLEW")"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           chmod +x "$GRADLEW"
+
+      - name: Fix unsupported Material icons
+        shell: bash
+        run: |
+          FILE="$PROJECT_DIR/app/src/main/java/com/gxrv/dynasty/ui/navigation/NavGraph.kt"
+
+          python3 - "$FILE" <<'PY'
+          import sys
+          from pathlib import Path
+
+          p = Path(sys.argv[1])
+          s = p.read_text()
+
+          replacements = {
+              "LocalFireDepartment": "Favorite",
+              "Calculate": "Search",
+              "SwapHoriz": "Menu",
+              "Storefront": "Home",
+              "Nightlight": "Star",
+              "Forum": "Email",
+              "Security": "Lock",
+              "ChatBubble": "Email",
+              "History": "DateRange",
+              "AdminPanelSettings": "Settings",
+          }
+
+          for old, new in replacements.items():
+              s = s.replace(old, new)
+
+          p.write_text(s)
+          print("Material icons fixed")
+
+          PY
 
       - name: Enable AndroidX
         shell: bash
@@ -70,9 +102,7 @@ jobs:
 
           def make_png(size):
               pixel = bytes([12, 35, 70, 255])
-              raw = b"".join(
-                  b"\x00" + pixel * size for _ in range(size)
-              )
+              raw = b"".join(b"\x00" + pixel * size for _ in range(size))
 
               def chunk(kind, data):
                   body = kind + data
@@ -84,10 +114,7 @@ jobs:
 
               return (
                   b"\x89PNG\r\n\x1a\n"
-                  + chunk(
-                      b"IHDR",
-                      struct.pack(">2I5B", size, size, 8, 6, 0, 0, 0)
-                  )
+                  + chunk(b"IHDR", struct.pack(">2I5B", size, size, 8, 6, 0, 0, 0))
                   + chunk(b"IDAT", zlib.compress(raw))
                   + chunk(b"IEND", b"")
               )
@@ -108,7 +135,8 @@ jobs:
                   path = target / name
                   if not path.exists():
                       path.write_bytes(make_png(size))
-                      print("Created:", path)
+
+          print("Launcher icon resources checked")
           PY
 
       - name: Build debug APK
