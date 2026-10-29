@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download repository files
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java
@@ -27,25 +27,38 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
-      - name: Extract Android project
+      - name: Extract Android project and enable AndroidX
+        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip
           unzip -q GXRV-DYNASTY-Android-Project.zip -d extracted
+
           GRADLEW=$(find extracted -type f -name gradlew -print -quit)
+
           if [ -z "$GRADLEW" ]; then
-            echo "ERROR: gradlew was not found inside the ZIP"
-            find extracted -maxdepth 4 -type d
+            echo "ERROR: gradlew was not found in the ZIP"
+            find extracted -maxdepth 5 -type d
             exit 1
           fi
+
           PROJECT_DIR="$(dirname "$GRADLEW")"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           chmod +x "$GRADLEW"
 
+          touch "$PROJECT_DIR/gradle.properties"
+
+          if grep -q '^android.useAndroidX=' "$PROJECT_DIR/gradle.properties"; then
+            sed -i 's/^android.useAndroidX=.*/android.useAndroidX=true/' "$PROJECT_DIR/gradle.properties"
+          else
+            echo 'android.useAndroidX=true' >> "$PROJECT_DIR/gradle.properties"
+          fi
+
       - name: Build debug APK
+        shell: bash
         run: |
           cd "$PROJECT_DIR"
-          ./gradlew assembleDebug --stacktrace --info
+          ./gradlew assembleDebug --stacktrace --console=plain
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
