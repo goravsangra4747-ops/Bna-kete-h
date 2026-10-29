@@ -27,7 +27,7 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
-      - name: Extract Android project and enable AndroidX
+      - name: Extract Android project
         shell: bash
         run: |
           sudo apt-get update
@@ -37,7 +37,7 @@ jobs:
           GRADLEW=$(find extracted -type f -name gradlew -print -quit)
 
           if [ -z "$GRADLEW" ]; then
-            echo "ERROR: gradlew was not found in the ZIP"
+            echo "ERROR: gradlew was not found inside the ZIP"
             find extracted -maxdepth 5 -type d
             exit 1
           fi
@@ -46,6 +46,9 @@ jobs:
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           chmod +x "$GRADLEW"
 
+      - name: Enable AndroidX
+        shell: bash
+        run: |
           touch "$PROJECT_DIR/gradle.properties"
 
           if grep -q '^android.useAndroidX=' "$PROJECT_DIR/gradle.properties"; then
@@ -53,6 +56,60 @@ jobs:
           else
             echo 'android.useAndroidX=true' >> "$PROJECT_DIR/gradle.properties"
           fi
+
+      - name: Fix missing launcher icons
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import struct
+          import zlib
+          from pathlib import Path
+
+          root = Path(os.environ["PROJECT_DIR"]) / "app/src/main/res"
+
+          def make_png(size):
+              pixel = bytes([12, 35, 70, 255])
+              raw = b"".join(
+                  b"\x00" + pixel * size for _ in range(size)
+              )
+
+              def chunk(kind, data):
+                  body = kind + data
+                  return (
+                      struct.pack(">I", len(data))
+                      + body
+                      + struct.pack(">I", zlib.crc32(body) & 0xffffffff)
+                  )
+
+              return (
+                  b"\x89PNG\r\n\x1a\n"
+                  + chunk(
+                      b"IHDR",
+                      struct.pack(">2I5B", size, size, 8, 6, 0, 0, 0)
+                  )
+                  + chunk(b"IDAT", zlib.compress(raw))
+                  + chunk(b"IEND", b"")
+              )
+
+          sizes = {
+              "mipmap-mdpi": 48,
+              "mipmap-hdpi": 72,
+              "mipmap-xhdpi": 96,
+              "mipmap-xxhdpi": 144,
+              "mipmap-xxxhdpi": 192,
+          }
+
+          for folder, size in sizes.items():
+              target = root / folder
+              target.mkdir(parents=True, exist_ok=True)
+
+              for name in ("ic_launcher.png", "ic_launcher_round.png"):
+                  path = target / name
+                  if not path.exists():
+                      path.write_bytes(make_png(size))
+                      print("Created:", path)
+          PY
 
       - name: Build debug APK
         shell: bash
@@ -64,6 +121,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gxrv-dynasty-apk
-          path: extracted/**/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-
